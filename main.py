@@ -59,24 +59,27 @@ def find_closest_note(freq, piano_dict):
     return closest_note, piano_dict[closest_note]
 
 def analyze_audio():
-    """Funkcja do analizy FFT i rozpoznawania dźwięku."""
+    """Funkcja do analizy STFT i rozpoznawania dźwięku."""
     global y, sr, positive_frequencies, positive_magnitudes, note_freq  # Używamy zmiennych globalnych
     if y is None or sr is None:
         label_audio_info.configure(text="Brak wgranego pliku audio!")
         return
 
     try:
-        # Obliczenie FFT
-        fft = np.fft.fft(y)
-        frequencies = np.fft.fftfreq(len(fft), 1 / sr)
-        magnitudes = np.abs(fft)
+        # Obliczenie STFT (krótkookresowej transformaty Fouriera)
+        n_fft = 8192  # Zwiększona liczba punktów FFT dla lepszej rozdzielczości
+        hop_length = n_fft // 4  # Ustawiony jako 1/4 n_fft dla równowagi czasu i częstotliwości
+        stft = np.abs(librosa.stft(y, n_fft=n_fft, hop_length=hop_length))
 
-        # Filtrujemy tylko częstotliwości dodatnie
-        positive_frequencies = frequencies[:len(frequencies) // 2]
-        positive_magnitudes = magnitudes[:len(magnitudes) // 2]
+        # Obliczanie średniej mocy dla każdej częstotliwości w czasie
+        avg_magnitude = np.mean(stft, axis=1)
 
-        # Znajdujemy dominującą częstotliwość
-        dominant_frequency = positive_frequencies[np.argmax(positive_magnitudes)]
+        # Odpowiednie częstotliwości dla STFT
+        frequencies = librosa.fft_frequencies(sr=sr, n_fft=n_fft)
+
+        # Znalezienie dominującej częstotliwości
+        dominant_frequency_idx = np.argmax(avg_magnitude)
+        dominant_frequency = frequencies[dominant_frequency_idx]
 
         # Dopasowanie do najbliższego dźwięku pianina
         piano_frequencies = generate_piano_frequencies()
@@ -125,26 +128,18 @@ label_analysis_result.pack(pady=20)
 
 
 def open_new_window():
-    global positive_frequencies, positive_magnitudes, closest_note
+    global y, sr, closest_note
     # Tworzymy nowe okno
     new_window = ctk.CTkToplevel(root)
-    new_window.title("Nowe okno")
-    new_window.geometry("400x300")
+    new_window.title("Spektrogram dźwięku")
+    new_window.geometry("600x400")
 
-    # Dodajemy treści do nowego okna
-    label = ctk.CTkLabel(new_window, text="Wykresy", font=("Arial", 16))
-    label.pack(pady=20)
-
-    button_close = ctk.CTkButton(new_window, text="Zamknij okno", command=new_window.destroy)
-    button_close.pack(pady=20)
-
-    # Tworzymy wykres Matplotlib
+    # Tworzymy wykres spektrogramu
     fig, ax = plt.subplots()
-    ax.plot(positive_frequencies, positive_magnitudes, label=f'Najwyższa częstotliwość')
-    ax.set_title(f"fft dźwięku {closest_note} ")
-    ax.set_xlabel("częstotlowość [hz]")
-    ax.set_ylabel("Amplituda")
-    ax.legend()
+    D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
+    img = librosa.display.specshow(D, sr=sr, hop_length=512, x_axis="time", y_axis="log", ax=ax)
+    ax.set_title(f"Spektrogram dźwięku: {closest_note}")
+    fig.colorbar(img, ax=ax, format="%+2.0f dB")
 
     # Dodanie wykresu do okna Tkinter
     canvas = FigureCanvasTkAgg(fig, master=new_window)  # Tworzymy widget z wykresem
